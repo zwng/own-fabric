@@ -29,7 +29,18 @@ export class EventCenter {
         }
     }
     emit(type, options = {}) {
-        
+        if (!this.__eventListeners) {
+            return this
+        }
+        let eList = this.__eventListeners[type]
+        if (!eList) {
+            return this
+        }
+        for (let i = 0, len = eList.length; i < len; i++) {
+            eList[i] && eList[i].call(this, options)
+        }
+        this.__eventListeners[type] = eList.filter(t => t !== false)
+        return this        
     }
     removeEventListener(type, handler) {
         if (!this.__eventListeners[type]) {
