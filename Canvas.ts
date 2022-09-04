@@ -30,8 +30,23 @@ export class Canvas extends EventCenter {
     public rotationCursor:string =  'crosshair';
 
 
-    constructor() {
+    constructor(el: HTMLCanvasElement, options) {
         super()
-        
+        // 初始化下层画布 lower-canvas
+        this._initStatic(el, options)
+    }
+
+    _initStatic(el: HTMLCanvasElement, options) {
+        this._createLowerCanvas(el);
+
+    }
+    _createLowerCanvas(el: HTMLCanvasElement) {
+        this.lowerCanvasEl = el;
+        this.contextContainer = this.lowerCanvasEl.getContext('2d');
+
+    }
+    _applyCanvasStyle(el: HTMLCanvasElement) {
+        let width = this.width || el.width;
+        let height = this.height || el.height;
     }
 }
