@@ -1,11 +1,16 @@
 import { Canvas } from './Canvas';
+import { FabricImage } from './FabricImage';
+import { FabricObject } from './FabricObject';
+import { Group } from './Group';
+import { Rect } from './Rect';
+import { Util } from './Util';
 
 // 最终导出的东西都挂载到 fabric 上面
-export default class fabric {
+export class fabric {
     static Canvas = Canvas;
-    static FabricObject = null;
-    static Rect = null;
-    static Group = null;
-    static FabricImage = null;
-    static Util = null;
+    static FabricObject = FabricObject;
+    static Rect = Rect;
+    static Group = Group;
+    static FabricImage = FabricImage;
+    static Util = Util;
 }

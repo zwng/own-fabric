@@ -1,26 +1,29 @@
 <!DOCTYPE html>
 <html lang="zh-cn">
-    <head>
-        <meta charset="UTF-8" />
-        <meta http-equiv="X-UA-Compatible" content="IE=edge" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>手写一个轻量 fabric.js</title>
-        <style>
-            canvas {
-                width: 800px;
-                width: 600px;
-                border: 1px solid;
-            }
-        </style>
-    </head>
-    <body>
-        <canvas id="canvas" width="800" height="600"></canvas>
-        <script type="module">
-            import  fabric  from './src/index.ts';
-            const canvas = new fabric.Canvas(document.getElementById('canvas'));
-            console.log('fabric', fabric)
 
-            window.xx = canvas;
-        </script>
-    </body>
+<head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>手写一个轻量 fabric.js</title>
+    <style>
+        canvas {
+            width: 800px;
+            width: 600px;
+            border: 1px solid;
+        }
+    </style>
+</head>
+
+<body>
+    <canvas id="canvas" width="800" height="600"></canvas>
+    <script type="module">
+        import { fabric } from './index.ts';
+        const canvas = new fabric.Canvas(document.getElementById('canvas'));
+        console.log('fabric', fabric)
+
+        window.xx = canvas;
+    </script>
+</body>
+
 </html>
