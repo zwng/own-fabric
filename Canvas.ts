@@ -91,6 +91,7 @@ export class Canvas extends EventCenter {
     }
     /** 初始化 _objects、lower-canvas 宽高、options 赋值 */
     _initStatic(el: HTMLCanvasElement, options) {
+        this._objects = [];
         this._createLowerCanvas(el);
         this._initOptions(options);
         this.calcOffset();
@@ -169,4 +170,70 @@ export class Canvas extends EventCenter {
         this._offset = Util.getElementOffset(this.lowerCanvasEl)
         return this;
     }
+    /** 添加元素
+     * 目前的模式是调用 add 添加物体的时候就立马渲染，
+     * 如果一次性加入大量元素，就会做很多无用功，
+     * 所以可以加一个属性来先批量添加元素，最后再一次渲染（手动调用 renderAll 函数即可）
+     */
+     add(...args): Canvas {
+        console.log('args', args)
+        this._objects.push.apply(this._objects, args);
+        for (let i = args.length; i--; ) {
+            this._initObject(args[i]);
+        }
+        this.renderAll();
+        return this;
+    }
+    _initObject(obj: FabricObject) {
+        obj.setupState();
+        // obj.setCoords();
+        obj.canvas = this;
+        this.emit('object:added', { target: obj });
+        obj.emit('added');
+    }
+    clearContext(ctx: CanvasRenderingContext2D): Canvas {
+        ctx && ctx.clearRect(0, 0, this.width, this.height);
+        return this;
+    }
+
+    /** 大部分是在 lower-canvas 上先画未激活物体，再画激活物体 */
+    renderAll(allOnTop: boolean = false): Canvas {
+        let canvasToDrawOn = this[allOnTop ? 'contextTop' : 'contextContainer'];
+
+        if (this.contextTop) {
+            this.clearContext(this.contextTop);
+        }
+
+        if (!allOnTop) {
+            this.clearContext(canvasToDrawOn);
+        }
+
+        this.emit('before:render');
+
+        if (this.backgroundColor) {
+            canvasToDrawOn.fillStyle = this.backgroundColor;
+            canvasToDrawOn.fillRect(0, 0, this.width, this.height);
+        }
+
+        // 先绘制未激活物体，再绘制激活物体
+        const sortedObjects = this._objects;
+        for (let i = 0, len = sortedObjects.length; i < len; ++i) {
+            this._draw(canvasToDrawOn, sortedObjects[i]);
+        }
+
+        this.emit('after:render');
+
+        return this;
+    }
+    getActiveObject() {
+        return this._activeObject;
+    }
+    getActiveGroup(): Group {
+        return this._activeGroup;
+    }
+    _draw(ctx: CanvasRenderingContext2D, object: FabricObject) {
+        if (!object) return;
+        object.render(ctx);
+    }
+
 }

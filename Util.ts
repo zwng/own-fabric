@@ -2,6 +2,8 @@ import { IAnimationOption, Offset, Transform } from './interface';
 
 import { Point } from './Point';
 
+const PiBy180 = Math.PI / 180; // 写在这里相当于缓存，因为会频繁调用
+
 export class Util {
     /** 给元素设置样式 */
     static setStyle(element: HTMLElement, styles: any) {
@@ -80,6 +82,28 @@ export class Util {
     /**添加事件监听 */
     static addListener(element, eventName, handler) {
         element.addEventListener(eventName, handler, false);
+    }
+    /**
+     * 将 point 绕 origin 旋转 radians 弧度
+     * @param {Point} point 要旋转的点
+     * @param {Point} origin 旋转中心点
+     * @param {number} radians 注意 canvas 中用的都是弧度
+     * @returns
+     */
+     static rotatePoint(point: Point, origin: Point, radians: number): Point {
+        const sin = Math.sin(radians),
+            cos = Math.cos(radians);
+
+        point.subtractEquals(origin);
+
+        const rx = point.x * cos - point.y * sin;
+        const ry = point.x * sin + point.y * cos;
+
+        return new Point(rx, ry).addEquals(origin);
+    }
+    /** 角度转弧度，注意 canvas 中用的都是弧度，但是角度对我们来说比较直观 */
+    static degreesToRadians(degrees: number): number {
+        return degrees * PiBy180;
     }
 
 }
