@@ -101,6 +101,8 @@ export abstract class FabricObject extends EventCenter {
     }
     /** 由子类实现，就是由具体物体类来实现 */
     abstract _render<T extends CanvasRenderingContext2D>(ctx: T, noTransform?: boolean): void;
+    /** 由子类具体实现 */
+    abstract _toSVG(): Array<string | number> 
 
     /** 渲染物体，默认用 fill 填充 */
     render(ctx: CanvasRenderingContext2D, noTransform: boolean = false) {
@@ -591,5 +593,436 @@ export abstract class FabricObject extends EventCenter {
             },
         };
     }
+    get(key: string) {
+        return this[key];
+    }
+    set(key: string, value): FabricObject {
+        if (key === 'scaleX' && value < 0) {
+            this.flipX = !this.flipX;
+            value *= -1;
+        } else if (key === 'scaleY' && value < 0) {
+            this.flipY = !this.flipY;
+            value *= -1;
+        }
+        this[key] = value;
+        return this;
+    }
+    /** 转换成本地坐标 */
+    toLocalPoint(point: Point, originX: string, originY: string): Point {
+        let center = this.getCenterPoint();
+
+        let x, y;
+        if (originX !== undefined && originY !== undefined) {
+            if (originX === 'left') {
+                x = center.x - this.getWidth() / 2;
+            } else if (originX === 'right') {
+                x = center.x + this.getWidth() / 2;
+            } else {
+                x = center.x;
+            }
+
+            if (originY === 'top') {
+                y = center.y - this.getHeight() / 2;
+            } else if (originY === 'bottom') {
+                y = center.y + this.getHeight() / 2;
+            } else {
+                y = center.y;
+            }
+        } else {
+            x = this.left;
+            y = this.top;
+        }
+
+        return Util.rotatePoint(new Point(point.x, point.y), center, -Util.degreesToRadians(this.angle)).subtractEquals(new Point(x, y));
+    }
+    /** 检测哪个控制点被点击了 */
+    _findTargetCorner(e: MouseEvent, offset: Offset): boolean | string {
+        if (!this.hasControls || !this.active) return false;
+
+        let pointer = Util.getPointer(e, this.canvas.upperCanvasEl),
+            ex = pointer.x - offset.left,
+            ey = pointer.y - offset.top,
+            xpoints,
+            lines;
+
+        for (let i in this.oCoords) {
+            if (i === 'mtr' && !this.hasRotatingPoint) {
+                continue;
+            }
+
+            lines = this._getImageLines(this.oCoords[i].corner);
+
+            xpoints = this._findCrossPoints(ex, ey, lines);
+            if (xpoints % 2 === 1 && xpoints !== 0) {
+                return i;
+            }
+        }
+        return false;
+    }
+    /** 获取包围盒的四条边 */
+    _getImageLines(corner: Corner) {
+        return {
+            topline: {
+                o: corner.tl,
+                d: corner.tr,
+            },
+            rightline: {
+                o: corner.tr,
+                d: corner.br,
+            },
+            bottomline: {
+                o: corner.br,
+                d: corner.bl,
+            },
+            leftline: {
+                o: corner.bl,
+                d: corner.tl,
+            },
+        };
+    }
+    /**
+     * 射线检测法：以鼠标坐标点为参照，水平向右做一条射线，求坐标点与多条边的交点个数
+     * 如果和物体相交的个数为偶数点则点在物体外部；如果为奇数点则点在内部
+     * 不过 fabric 的点选多边形都是用于包围盒，也就是矩形，所以该方法是专门针对矩形的，并且针对矩形做了一些优化
+     */
+    _findCrossPoints(ex: number, ey: number, lines): number {
+        let b1, // 射线的斜率
+            b2, // 边的斜率
+            a1,
+            a2,
+            xi, // 射线与边的交点
+            // yi, // 射线与边的交点
+            xcount = 0,
+            iLine; // 当前边
+
+        // 遍历包围盒的四条边
+        for (let lineKey in lines) {
+            iLine = lines[lineKey];
+
+            // 优化1：如果边的两个端点的 y 值都小于鼠标点的 y 值，则跳过
+            if (iLine.o.y < ey && iLine.d.y < ey) continue;
+            // 优化2：如果边的两个端点的 y 值都大于鼠标点的 y 值，则跳过
+            if (iLine.o.y >= ey && iLine.d.y >= ey) continue;
+
+            // 优化3：如果边是一条垂线
+            if (iLine.o.x === iLine.d.x && iLine.o.x >= ex) {
+                xi = iLine.o.x;
+                // yi = ey;
+            } else {
+                // 简单计算下射线与边的交点，看式子容易晕，建议自己手动算一下
+                b1 = 0;
+                b2 = (iLine.d.y - iLine.o.y) / (iLine.d.x - iLine.o.x);
+                a1 = ey - b1 * ex;
+                a2 = iLine.o.y - b2 * iLine.o.x;
+
+                xi = -(a1 - a2) / (b1 - b2);
+                // yi = a1 + b1 * xi;
+            }
+            // 只需要计数 xi >= ex 的情况
+            if (xi >= ex) {
+                xcount += 1;
+            }
+            // 优化4：因为 fabric 中的多边形只需要用到矩形，所以根据矩形的特质，顶多只有两个交点，所以我们可以提前结束循环
+            if (xcount === 2) {
+                break;
+            }
+        }
+        return xcount;
+    }
+    /** 物体动画 */
+    animate(props, animateOptions: IAnimationOption): FabricObject {
+        let propsToAnimate: string[] = [];
+        for (let prop in props) {
+            propsToAnimate.push(prop);
+        }
+        const len = propsToAnimate.length;
+        propsToAnimate.forEach((prop, i) => {
+            const skipCallbacks = i !== len - 1;
+            this._animate(prop, props[prop], animateOptions, skipCallbacks);
+        });
+        return this;
+    }
+    /**
+     * 让物体真正动起来
+     * @param property 物体需要动画的属性
+     * @param to 物体属性的最终值
+     * @param options 一些动画选项
+     * @param skipCallbacks 是否跳过绘制
+     */
+    _animate(property, to, options: IAnimationOption = {}, skipCallbacks) {
+        options = Util.clone(options);
+
+        let currentValue = this.get(property);
+
+        if (!options.from) options.from = currentValue;
+        to = to.toString();
+        if (~to.indexOf('=')) {
+            to = currentValue + parseFloat(to.replace('=', ''));
+        } else {
+            to = parseFloat(to);
+        }
+
+        Util.animate({
+            startValue: options.from,
+            endValue: to,
+            byValue: options.by,
+            easing: options.easing,
+            duration: options.duration,
+            abort: options.abort && (() => (options.abort as Function).call(this)),
+            onChange: (value) => {
+                this.set(property, value);
+                if (skipCallbacks) {
+                    return;
+                }
+                options.onChange && options.onChange();
+            },
+            onComplete: () => {
+                if (skipCallbacks) {
+                    return;
+                }
+                this.setCoords();
+                options.onComplete && options.onComplete();
+            },
+        });
+    }
+    setActive(active: boolean = false): FabricObject {
+        this.active = !!active;
+        return this;
+    }
+    /**
+     * 平移坐标系到中心点
+     * @param center
+     * @param {string} originX  left | center | right
+     * @param {string} originY  top | center | bottom
+     * @returns
+     */
+    translateToOriginPoint(center: Point, originX: string, originY: string): Point {
+        let x = center.x,
+            y = center.y;
+
+        // Get the point coordinates
+        if (originX === 'left') {
+            x = center.x - this.getWidth() / 2;
+        } else if (originX === 'right') {
+            x = center.x + this.getWidth() / 2;
+        }
+        if (originY === 'top') {
+            y = center.y - this.getHeight() / 2;
+        } else if (originY === 'bottom') {
+            y = center.y + this.getHeight() / 2;
+        }
+
+        // Apply the rotation to the point (it's already scaled properly)
+        return Util.rotatePoint(new Point(x, y), center, Util.degreesToRadians(this.angle));
+    }
+
+    /**
+     * 根据物体的 origin 来设置物体的位置
+     * @method setPositionByOrigin
+     * @param {Point} pos
+     * @param {string} originX left | center | right
+     * @param {string} originY top | center | bottom
+     */
+    setPositionByOrigin(pos: Point, originX: string, originY: string) {
+        let center = this.translateToCenterPoint(pos, originX, originY);
+        let position = this.translateToOriginPoint(center, this.originX, this.originY);
+        // console.log(`更新缩放的物体位置:[${position.x}，${position.y}]`);
+        this.set('left', position.x);
+        this.set('top', position.y);
+    }
+    /**
+     * @param to left, center, right 中的一个
+     */
+    adjustPosition(to: string) {
+        let angle = Util.degreesToRadians(this.angle);
+
+        let hypotHalf = this.getWidth() / 2;
+        let xHalf = Math.cos(angle) * hypotHalf;
+        let yHalf = Math.sin(angle) * hypotHalf;
+
+        let hypotFull = this.getWidth();
+        let xFull = Math.cos(angle) * hypotFull;
+        let yFull = Math.sin(angle) * hypotFull;
+
+        if ((this.originX === 'center' && to === 'left') || (this.originX === 'right' && to === 'center')) {
+            // move half left
+            this.left -= xHalf;
+            this.top -= yHalf;
+        } else if ((this.originX === 'left' && to === 'center') || (this.originX === 'center' && to === 'right')) {
+            // move half right
+            this.left += xHalf;
+            this.top += yHalf;
+        } else if (this.originX === 'left' && to === 'right') {
+            // move full right
+            this.left += xFull;
+            this.top += yFull;
+        } else if (this.originX === 'right' && to === 'left') {
+            // move full left
+            this.left -= xFull;
+            this.top -= yFull;
+        }
+
+        this.setCoords();
+        this.originX = to;
+    }
+    hasStateChanged(): boolean {
+        return this.stateProperties.some(function (prop) {
+            return this[prop] !== this.originalState[prop];
+        }, this);
+    }
+    /**
+     * 物体与框选区域是否相交，用框选区域的四条边分别与物体的四条边求交
+     * @param {Point} selectionTL 拖蓝框选区域左上角的点
+     * @param {Point} selectionBR 拖蓝框选区域右下角的点
+     * @returns {boolean}
+     */
+    intersectsWithRect(selectionTL: Point, selectionBR: Point): boolean {
+        let oCoords = this.oCoords,
+            tl = new Point(oCoords.tl.x, oCoords.tl.y),
+            tr = new Point(oCoords.tr.x, oCoords.tr.y),
+            bl = new Point(oCoords.bl.x, oCoords.bl.y),
+            br = new Point(oCoords.br.x, oCoords.br.y);
+
+        let intersection = Intersection.intersectPolygonRectangle([tl, tr, br, bl], selectionTL, selectionBR);
+        return intersection.status === 'Intersection';
+    }
+    /**
+     * 物体是否被框选区域包含
+     * @param {Point} selectionTL 拖蓝框选区域左上角的点
+     * @param {Point} selectionBR 拖蓝框选区域右下角的点
+     * @returns {boolean}
+     */
+    isContainedWithinRect(selectionTL: Point, selectionBR: Point): boolean {
+        let oCoords = this.oCoords,
+            tl = new Point(oCoords.tl.x, oCoords.tl.y),
+            tr = new Point(oCoords.tr.x, oCoords.tr.y),
+            bl = new Point(oCoords.bl.x, oCoords.bl.y);
+
+        return tl.x > selectionTL.x && tr.x < selectionBR.x && tl.y > selectionTL.y && bl.y < selectionBR.y;
+    }
+    getViewportTransform() {
+        if (this.canvas && this.canvas.viewportTransform) {
+            return this.canvas.viewportTransform;
+        }
+        return [1, 0, 0, 1, 0, 0];
+    }
+    _calculateCurrentDimensions() {
+        let vpt = this.getViewportTransform(),
+            dim = this._getTransformedDimensions(),
+            w = dim.x,
+            h = dim.y;
+
+        w += 2 * this.padding;
+        h += 2 * this.padding;
+
+        return Util.transformPoint(new Point(w, h), vpt, true);
+    }
+    /** 获取物体没有变换时的大小，包括 strokeWidth 的 1px */
+    _getNonTransformedDimensions() {
+        let strokeWidth = this.strokeWidth,
+            w = this.width,
+            h = this.height,
+            addStrokeToW = true,
+            addStrokeToH = true;
+
+        if (addStrokeToH) {
+            h += h < 0 ? -strokeWidth : strokeWidth;
+        }
+
+        if (addStrokeToW) {
+            w += w < 0 ? -strokeWidth : strokeWidth;
+        }
+
+        return { x: w, y: h };
+    }
+    _getTransformedDimensions(skewX = 0, skewY = 0) {
+        let dimensions = this._getNonTransformedDimensions(),
+            dimX = dimensions.x / 2,
+            dimY = dimensions.y / 2,
+            points = [
+                {
+                    x: -dimX,
+                    y: -dimY,
+                },
+                {
+                    x: dimX,
+                    y: -dimY,
+                },
+                {
+                    x: -dimX,
+                    y: dimY,
+                },
+                {
+                    x: dimX,
+                    y: dimY,
+                },
+            ],
+            i,
+            transformMatrix = this._calcDimensionsTransformMatrix(skewX, skewY, false),
+            bbox;
+        for (i = 0; i < points.length; i++) {
+            points[i] = Util.transformPoint(points[i], transformMatrix);
+        }
+        bbox = Util.makeBoundingBoxFromPoints(points);
+        return { x: bbox.width, y: bbox.height };
+    }
+    _calcDimensionsTransformMatrix(skewX, skewY, flipping) {
+        let skewMatrixX = [1, 0, Math.tan(Util.degreesToRadians(skewX)), 1],
+            skewMatrixY = [1, Math.tan(Util.degreesToRadians(skewY)), 0, 1],
+            scaleX = this.scaleX,
+            scaleY = this.scaleY,
+            scaleMatrix = [scaleX, 0, 0, scaleY],
+            m = Util.multiplyTransformMatrices(scaleMatrix, skewMatrixX, true);
+        return Util.multiplyTransformMatrices(m, skewMatrixY, true);
+    }
+    /**
+     * 转成基础标准对象，方便序列化
+     * @param propertiesToInclude 你可能需要添加一些额外的自定义属性
+     * @returns 标准对象
+     */
+    toObject(propertiesToInclude = []) {
+        // 保存时的数字精度
+        const NUM_FRACTION_DIGITS = 2;
+        const object = {
+            type: this.type,
+            originX: this.originX,
+            originY: this.originY,
+            left: Util.toFixed(this.left, NUM_FRACTION_DIGITS),
+            top: Util.toFixed(this.top, NUM_FRACTION_DIGITS),
+            width: Util.toFixed(this.width, NUM_FRACTION_DIGITS),
+            height: Util.toFixed(this.height, NUM_FRACTION_DIGITS),
+            fill: this.fill,
+            stroke: this.stroke,
+            strokeWidth: this.strokeWidth,
+            scaleX: Util.toFixed(this.scaleX, NUM_FRACTION_DIGITS),
+            scaleY: Util.toFixed(this.scaleY, NUM_FRACTION_DIGITS),
+            angle: Util.toFixed(this.getAngle(), NUM_FRACTION_DIGITS),
+            flipX: this.flipX,
+            flipY: this.flipY,
+            hasControls: this.hasControls,
+            hasRotatingPoint: this.hasRotatingPoint,
+            transparentCorners: this.transparentCorners,
+            perPixelTargetFind: this.perPixelTargetFind,
+            visible: this.visible,
+        };
+        Util.populateWithProperties(this, object, propertiesToInclude);
+        return object;
+    }
+    toSvg(): string {
+        const markup:string[] = [];
+        const objSvg = this._toSVG();
+
+        markup.push('<g ', this.getSvgTransform(), ' >\n');
+        markup.push(objSvg.join(''));
+        markup.push('</g>\n');
+        return markup.join('');
+    }
+
+    getSvgTransform() {
+        let transform = this.calcOwnMatrix(),
+            svgTransform = 'transform="' + Util.matrixToSVG(transform);
+        return svgTransform + '" ';
+    }
+    calcOwnMatrix() { }
 
 }

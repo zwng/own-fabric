@@ -58,5 +58,16 @@ export class Rect extends FabricObject {
         if (this.stroke) ctx.stroke();
 
     }
+    _toSVG() {
+        var x = -this.width / 2,
+            y = -this.height / 2;
+        return ['<rect ', 'x="', x, '" y="', y, '" rx="', this.rx, '" ry="', this.ry, '" width="', this.width, '" height="', this.height, '" />\n'];
+    }
+    toObject(propertiesToInclude) {
+        return Object.assign(super.toObject(propertiesToInclude), {
+            rx: this.get('rx') || 0,
+            ry: this.get('ry') || 0,
+        });
+    }
 
 }
