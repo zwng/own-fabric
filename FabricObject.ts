@@ -101,7 +101,7 @@ export abstract class FabricObject extends EventCenter {
     }
     /** 由子类实现，就是由具体物体类来实现 */
     abstract _render<T extends CanvasRenderingContext2D>(ctx: T, noTransform?: boolean): void;
-    
+
     /** 渲染物体，默认用 fill 填充 */
     render(ctx: CanvasRenderingContext2D, noTransform: boolean = false) {
         if (this.width === 0 || this.height === 0 || !this.visible) return
@@ -121,8 +121,13 @@ export abstract class FabricObject extends EventCenter {
         }
 
         // 绘制物体
-        this._render(ctx)
-
+        this._render<CanvasRenderingContext2D>(ctx)
+        if (this.active && !noTransform) {
+            // 绘制激活物体边框
+            this.drawBorders(ctx)
+            // 绘制激活物体四周的控制点
+            this.drawControls(ctx)
+        }
         // 绘制坐标系
         this.drawAxis(ctx)
         ctx.restore()
@@ -144,6 +149,135 @@ export abstract class FabricObject extends EventCenter {
         ctx.stroke();
         ctx.restore();
     }
+    /** 绘制激活物体边框 */
+    drawBorders(ctx: CanvasRenderingContext2D) {
+        let padding = this.padding,
+            padding2 = padding * 2,
+            strokeWidth = this.borderWidth;
+
+        ctx.save();
+
+        ctx.globalAlpha = this.isMoving ? this.borderOpacityWhenMoving : 1;
+        ctx.strokeStyle = this.borderColor;
+        ctx.lineWidth = strokeWidth;
+
+        /** 画边框的时候需要把 transform 变换中的 scale 效果抵消，这样才能画出原始大小的线条 */
+        ctx.scale(1 / this.scaleX, 1 / this.scaleY);
+
+        let w = this.getWidth(),
+            h = this.getHeight();
+        // 画物体激活时候的边框，也就是包围盒，~~就是取整的意思
+        ctx.strokeRect(-(w / 2) - padding - strokeWidth / 2, -(h / 2) - padding - strokeWidth / 2, w + padding2 + strokeWidth, h + padding2 + strokeWidth);
+
+        // 画旋转控制点的那条线
+        if (this.hasRotatingPoint && this.hasControls) {
+            let rotateHeight = (-h - strokeWidth - padding * 2) / 2;
+
+            ctx.beginPath();
+            ctx.moveTo(0, rotateHeight);
+            ctx.lineTo(0, rotateHeight - this.rotatingPointOffset);
+            ctx.closePath();
+            ctx.stroke();
+        }
+
+        ctx.restore();
+        return this;
+
+    }
+    /** 绘制包围盒模型的控制点 */
+    drawControls(ctx: CanvasRenderingContext2D) {
+        if (!this.hasControls) return;
+        // 因为画布已经经过变换，所以大部分数值需要除以 scale 来抵消变换
+        let size = this.cornerSize,
+            size2 = size / 2,
+            strokeWidth2 = this.strokeWidth / 2,
+            // top 和 left 值为物体左上角的点
+            left = -(this.width / 2),
+            top = -(this.height / 2),
+            _left,
+            _top,
+            sizeX = size / this.scaleX,
+            sizeY = size / this.scaleY,
+            paddingX = this.padding / this.scaleX,
+            paddingY = this.padding / this.scaleY,
+            scaleOffsetY = size2 / this.scaleY,
+            scaleOffsetX = size2 / this.scaleX,
+            scaleOffsetSizeX = (size2 - size) / this.scaleX,
+            scaleOffsetSizeY = (size2 - size) / this.scaleY,
+            height = this.height,
+            width = this.width,
+            // 控制点是实心还是空心
+            methodName = this.transparentCorners ? 'strokeRect' : 'fillRect';
+
+        ctx.save();
+
+        ctx.lineWidth = this.borderWidth / Math.max(this.scaleX, this.scaleY);
+
+        ctx.globalAlpha = this.isMoving ? this.borderOpacityWhenMoving : 1;
+        ctx.strokeStyle = ctx.fillStyle = this.cornerColor;
+
+        // top-left
+        _left = left - scaleOffsetX - strokeWidth2 - paddingX;
+        _top = top - scaleOffsetY - strokeWidth2 - paddingY;
+        ctx.clearRect(_left, _top, sizeX, sizeY);
+        ctx[methodName](_left, _top, sizeX, sizeY);
+
+        // top-right
+        _left = left + width - scaleOffsetX + strokeWidth2 + paddingX;
+        _top = top - scaleOffsetY - strokeWidth2 - paddingY;
+        ctx.clearRect(_left, _top, sizeX, sizeY);
+        ctx[methodName](_left, _top, sizeX, sizeY);
+
+        // bottom-left
+        _left = left - scaleOffsetX - strokeWidth2 - paddingX;
+        _top = top + height + scaleOffsetSizeY + strokeWidth2 + paddingY;
+        ctx.clearRect(_left, _top, sizeX, sizeY);
+        ctx[methodName](_left, _top, sizeX, sizeY);
+
+        // bottom-right
+        _left = left + width + scaleOffsetSizeX + strokeWidth2 + paddingX;
+        _top = top + height + scaleOffsetSizeY + strokeWidth2 + paddingY;
+        ctx.clearRect(_left, _top, sizeX, sizeY);
+        ctx[methodName](_left, _top, sizeX, sizeY);
+
+        // middle-top
+        _left = left + width / 2 - scaleOffsetX;
+        _top = top - scaleOffsetY - strokeWidth2 - paddingY;
+        ctx.clearRect(_left, _top, sizeX, sizeY);
+        ctx[methodName](_left, _top, sizeX, sizeY);
+
+        // middle-bottom
+        _left = left + width / 2 - scaleOffsetX;
+        _top = top + height + scaleOffsetSizeY + strokeWidth2 + paddingY;
+        ctx.clearRect(_left, _top, sizeX, sizeY);
+        ctx[methodName](_left, _top, sizeX, sizeY);
+
+        // middle-right
+        _left = left + width + scaleOffsetSizeX + strokeWidth2 + paddingX;
+        _top = top + height / 2 - scaleOffsetY;
+        ctx.clearRect(_left, _top, sizeX, sizeY);
+        ctx[methodName](_left, _top, sizeX, sizeY);
+
+        // middle-left
+        _left = left - scaleOffsetX - strokeWidth2 - paddingX;
+        _top = top + height / 2 - scaleOffsetY;
+        ctx.clearRect(_left, _top, sizeX, sizeY);
+        ctx[methodName](_left, _top, sizeX, sizeY);
+
+        // 绘制旋转控制点
+        if (this.hasRotatingPoint) {
+            _left = left + width / 2 - scaleOffsetX;
+            _top = top - this.rotatingPointOffset / this.scaleY - sizeY / 2 - strokeWidth2 - paddingY;
+
+            ctx.clearRect(_left, _top, sizeX, sizeY);
+            ctx[methodName](_left, _top, sizeX, sizeY);
+        }
+
+        ctx.restore();
+
+        return this;
+    }
+
     /** 绘制前需要进行各种变换（包括平移、旋转、缩放）
      * 注意变换顺序很重要，顺序不一样会导致不一样的结果，所以一个框架一旦定下来了，后面大概率是不能更改的
      * 我们采用的顺序是：平移 -> 旋转 -> 缩放，这样可以减少些计算量，如果我们先旋转，点的坐标值一般就不是整数，那么后面的变换基于非整数来计算
@@ -162,7 +296,7 @@ export abstract class FabricObject extends EventCenter {
     /** 将中心点移到变换基点 */
     translateToCenterPoint(point: Point, originX: string, originY: string) {
         let cx = point.x,
-        cy = point.y;
+            cy = point.y;
 
         if (originX === 'left') {
             cx = point.x + this.getWidth() / 2;
